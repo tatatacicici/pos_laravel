@@ -86,7 +86,7 @@ docker compose exec app php artisan migrate:fresh --seed
 
 ---
 
-## 💳 Konfigurasi Midtrans Sandbox
+## Konfigurasi Midtrans Sandbox
 
 Pengaturan Midtrans terdapat di `.env`:
 
@@ -108,7 +108,7 @@ MIDTRANS_IS_3DS=true
 
 ---
 
-## 🖨️ Endpoint Cetak PDF
+## Endpoint Cetak PDF
 
 - **Struk Kasir Thermal (58mm)**:
     ```http
