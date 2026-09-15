@@ -17,31 +17,68 @@ use Midtrans\Snap;
 
 class MidtransService
 {
+    protected bool $enabled;
     protected string $serverKey;
     protected string $clientKey;
     protected bool $isProduction;
 
     public function __construct()
     {
-        $this->serverKey = (string) config('midtrans.server_key');
-        $this->clientKey = (string) config('midtrans.client_key');
+        $this->enabled = (bool) config('midtrans.enabled', true);
+        $this->serverKey = (string) config('midtrans.server_key', '');
+        $this->clientKey = (string) config('midtrans.client_key', '');
         $this->isProduction = (bool) config('midtrans.is_production', false);
 
-        // Configure Midtrans SDK
-        Config::$serverKey = $this->serverKey;
-        Config::$clientKey = $this->clientKey;
-        Config::$isProduction = $this->isProduction;
-        Config::$isSanitized = (bool) config('midtrans.is_sanitized', true);
-        Config::$is3ds = (bool) config('midtrans.is_3ds', true);
+        if ($this->isEnabled()) {
+            Config::$serverKey = $this->serverKey;
+            Config::$clientKey = $this->clientKey;
+            Config::$isProduction = $this->isProduction;
+            Config::$isSanitized = (bool) config('midtrans.is_sanitized', true);
+            Config::$is3ds = (bool) config('midtrans.is_3ds', true);
+        }
     }
 
     /**
-     * Create Midtrans Snap transaction for an Order.
-     *
-     * @throws Exception
+     * Check if Midtrans is actively enabled with real configured credentials.
+     */
+    public function isEnabled(): bool
+    {
+        if (!$this->enabled || empty($this->serverKey)) {
+            return false;
+        }
+
+        // Detect dummy/placeholder keys
+        if (str_contains($this->serverKey, 'DEMO_TEST_KEY') || str_contains($this->serverKey, 'YOUR_SERVER_KEY')) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Create Midtrans Snap transaction for an Order with graceful fallback.
      */
     public function createSnapTransaction(Order $order): Payment
     {
+        // Graceful fallback when Midtrans is disabled or using placeholder keys
+        if (!$this->isEnabled()) {
+            Log::info("Midtrans is bypassed/halted for Order #{$order->invoice_number}. Using mock token.");
+
+            return Payment::updateOrCreate(
+                ['order_id' => $order->id],
+                [
+                    'payment_method' => PaymentMethod::MIDTRANS_SNAP,
+                    'payment_status' => PaymentStatus::PENDING,
+                    'amount' => $order->total_amount,
+                    'snap_token' => 'mock-snap-' . $order->invoice_number,
+                    'snap_redirect_url' => 'https://app.sandbox.midtrans.com/snap/v2/vtweb/mock-' . $order->invoice_number,
+                    'payload' => [
+                        'notice' => 'Fitur Midtrans sedang di-halt / menggunakan dummy key. Atur MIDTRANS_SERVER_KEY di .env untuk mengaktifkan sandbox asli.',
+                    ],
+                ]
+            );
+        }
+
         $order->loadMissing('items.product');
 
         $itemDetails = [];
@@ -54,7 +91,6 @@ class MidtransService
             ];
         }
 
-        // Add tax as item if applicable
         if ((float) $order->tax_amount > 0) {
             $itemDetails[] = [
                 'id' => 'TAX',
@@ -64,7 +100,6 @@ class MidtransService
             ];
         }
 
-        // Add service charge if applicable
         if ((float) $order->service_charge > 0) {
             $itemDetails[] = [
                 'id' => 'SERVICE_CHARGE',
@@ -74,7 +109,6 @@ class MidtransService
             ];
         }
 
-        // Subtract discount if applicable
         if ((float) $order->discount_amount > 0) {
             $itemDetails[] = [
                 'id' => 'DISCOUNT',
@@ -97,26 +131,43 @@ class MidtransService
             ],
         ];
 
-        // Call Midtrans Snap API
-        $snapResponse = Snap::createTransaction($params);
+        try {
+            $snapResponse = Snap::createTransaction($params);
 
-        // Record payment in database
-        return Payment::updateOrCreate(
-            ['order_id' => $order->id],
-            [
-                'payment_method' => PaymentMethod::MIDTRANS_SNAP,
-                'payment_status' => PaymentStatus::PENDING,
-                'amount' => $order->total_amount,
-                'snap_token' => $snapResponse->token,
-                'snap_redirect_url' => $snapResponse->redirect_url,
-                'payload' => (array) $snapResponse,
-            ]
-        );
+            return Payment::updateOrCreate(
+                ['order_id' => $order->id],
+                [
+                    'payment_method' => PaymentMethod::MIDTRANS_SNAP,
+                    'payment_status' => PaymentStatus::PENDING,
+                    'amount' => $order->total_amount,
+                    'snap_token' => $snapResponse->token,
+                    'snap_redirect_url' => $snapResponse->redirect_url,
+                    'payload' => (array) $snapResponse,
+                ]
+            );
+        } catch (Exception $e) {
+            Log::error("Midtrans API call failed for Order #{$order->invoice_number}: {$e->getMessage()}");
+
+            // Graceful fallback: return pending payment record with error details
+            return Payment::updateOrCreate(
+                ['order_id' => $order->id],
+                [
+                    'payment_method' => PaymentMethod::MIDTRANS_SNAP,
+                    'payment_status' => PaymentStatus::PENDING,
+                    'amount' => $order->total_amount,
+                    'snap_token' => null,
+                    'snap_redirect_url' => null,
+                    'payload' => [
+                        'error' => $e->getMessage(),
+                        'notice' => 'Koneksi ke API Midtrans gagal. Pembayaran dicatat sebagai pending.',
+                    ],
+                ]
+            );
+        }
     }
 
     /**
      * Timing-safe verification of Midtrans Webhook signature.
-     * Best practice from "Securing Laravel" by Stephen Rees-Carter.
      */
     public function verifyWebhookSignature(string $orderId, string $statusCode, string $grossAmount, string $receivedSignature): bool
     {
@@ -141,7 +192,7 @@ class MidtransService
         $paymentType = (string) ($payload['payment_type'] ?? '');
         $transactionId = (string) ($payload['transaction_id'] ?? '');
 
-        // Security check: Validate signature
+        // Signature validation
         if (!$this->verifyWebhookSignature($orderId, $statusCode, $grossAmount, $signatureKey)) {
             Log::warning('Midtrans Webhook: Invalid signature detected', ['order_id' => $orderId]);
             throw new Exception('Invalid signature key');
@@ -158,7 +209,6 @@ class MidtransService
         $payment->payment_type = $paymentType;
         $payment->payload = $payload;
 
-        // Parse status according to Midtrans documentation
         $paymentStatus = PaymentStatus::PENDING;
         $orderStatus = OrderStatus::PENDING;
 

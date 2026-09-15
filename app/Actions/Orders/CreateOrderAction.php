@@ -188,8 +188,12 @@ class CreateOrderAction
                     'paid_at' => $isCashPaid ? now() : null,
                 ]);
             } elseif ($paymentMethod->isOnlineGateway()) {
-                // If Midtrans Snap is selected, request Snap Token
-                $this->midtransService->createSnapTransaction($order);
+                // If Midtrans Snap is selected, request Snap Token safely
+                try {
+                    $this->midtransService->createSnapTransaction($order);
+                } catch (Exception $e) {
+                    \Illuminate\Support\Facades\Log::warning("Midtrans payment initialization halted/skipped: " . $e->getMessage());
+                }
             }
 
             return $order->load(['items', 'outlet', 'latestPayment']);

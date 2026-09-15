@@ -1,6 +1,16 @@
 <?php
 
 return [
+    /*
+    |--------------------------------------------------------------------------
+    | Midtrans Payment Gateway Toggle & Configuration
+    |--------------------------------------------------------------------------
+    |
+    | Set MIDTRANS_ENABLED=false to bypass/halt Midtrans integration
+    | when running offline or without active Midtrans credentials.
+    |
+    */
+    'enabled' => env('MIDTRANS_ENABLED', true),
     'server_key' => env('MIDTRANS_SERVER_KEY', ''),
     'client_key' => env('MIDTRANS_CLIENT_KEY', ''),
     'is_production' => (bool) env('MIDTRANS_IS_PRODUCTION', false),
