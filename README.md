@@ -1,58 +1,124 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Laravel PoS (Point of Sale) Boilerplate
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Boilerplate aplikasi **Point of Sale (PoS) serbaguna (General PoS)** berbasis Laravel dan Docker. Dirancang untuk dapat digunakan pada berbagai jenis bisnis (Retail, F&B/Cafe, Restoran, Toko Kelontong, hingga Jasa).
 
-## About Laravel
+Boilerplate ini mengadopsi standar arsitektur **Domain-Driven Design (DDD)** dan **Action Pattern** terinspirasi dari buku terkemuka **_Laravel Beyond CRUD_** serta standar keamanan transaksi dari **_Securing Laravel_**.
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+---
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## Fitur Unggulan
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+1. **Multi-Store / Multi-Outlet Ready**:
+    - Struktur database siap cabang/outlet (`outlets`), kasir, dan sesi kasir (`cashier_shifts` buka/tutup kasir dengan saldo awal & akhir).
+2. **Katalog Produk & Varian (General)**:
+    - Mendukung produk fisik berstok, produk jasa (tanpa stok), barcode/SKU, dan multi-varian (misal: _Ukuran Regular/Large_, _Cold/Hot_, _250g_).
+    - Pengurangan stok otomatis dan riwayat mutasi stok (`stock_movements`).
+3. **Cetak Nota Kasir PDF (Thermal & Formal)**:
+    - **Thermal Struk (58mm & 80mm)**: Didesain presisi untuk printer thermal kasir (menggunakan `barryvdh/laravel-dompdf` dengan font monospace).
+    - **Faktur Penjualan Resmi (A4 PDF)**: Faktur lengkap dengan rincian PPN, biaya layanan (service charge), diskon, dan subtotal.
+4. **Pembayaran Midtrans (Sandbox Ready & Graceful Halt)**:
+    - Terintegrasi dengan **Midtrans Snap API (Sandbox Mode)** untuk pembayaran online (QRIS, GoPay, Bank Transfer, Kartu Kredit).
+    - **Timing-Safe Webhook Handler**: Menggunakan `hash_equals()` untuk memverifikasi SHA-512 Signature key Midtrans.
+    - **Feature Halt / Offline Friendly**: Jika belum memiliki API key Midtrans atau sedang offline, sistem otomatis beralih ke mode mock/bypass yang aman tanpa membuat transaksi error.
+5. **Interactive POS Register Screen**:
+    - Antarmuka layar kasir interaktif berbasis Tailwind CSS langsung tersedia di `http://localhost:8000` (split-screen: filter kategori, quick search barcode, keranjang belanja real-time, kalkulator uang kembalian, dan cetak PDF langsung).
 
-## Learning Laravel
+---
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+## Referensi Buku & Best Practice Keamanan Kode
 
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+Boilerplate ini dibangun dengan mengacu pada literatur dan standar industri berikut:
 
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
+### 1. **"Securing Laravel" & "Practical Laravel Security"** oleh _Stephen Rees-Carter_
 
-## Agentic Development
+- **Validasi Ketat Input**: Semua endpoint transaksi menggunakan `FormRequest` khusus (`CreateOrderRequest`) dengan validasi typed Enum.
+- **Timing-Attack Prevention**: Verifikasi signature Midtrans Webhook menggunakan fungsi timing-safe `hash_equals()`.
+- **Database Transaction Atomicity**: Seluruh mutasi pesanan, pembayaran, dan pemotongan stok dibungkus dalam `DB::transaction()` untuk mencegah inkonsistensi saldo/stok.
+- **Rate Limiting**: Endpoint order dan webhook dilindungi oleh middleware `throttle` bawaan Laravel.
 
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
+### 2. **"Laravel Beyond CRUD"** oleh _Brent Roose & Tim Spatie_
+
+- **Pola Actions**: Logika transaksi diekstrak ke dalam Action class mandiri (`CreateOrderAction`).
+- **PHP 8.3 Enums**: Menggunakan native Enums (`OrderStatus`, `PaymentStatus`, `PaymentMethod`, `ProductType`, `StockMovementType`) untuk mencegah penggunaan _magic strings_.
+- **Thin Controllers**: Controller hanya bertugas memvalidasi request HTTP dan memanggil Action/Service.
+
+---
+
+## Rekomendasi Tampilan: Template Online vs Buat Sendiri?
+
+Aplikasi Point of Sale memiliki **2 kebutuhan tampilan yang bertolak belakang**:
+
+| Fitur                          | Pendekatan Terbaik                                                                                          | Alasan                                                                                                                                                                                                                                                |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Layar Kasir (POS Register)** | **Buat Sendiri (Custom UI)** _(Sudah disediakan di boilerplate ini)_                                        | Layar kasir butuh UX khusus: **Single-Screen tanpa reload**, tombol touch-friendly besar, barcode scanner shortcut, keranjang real-time, kalkulator kembalian cepat, dan popup cetak struk. Template admin biasa terlalu kaku dan lambat untuk kasir. |
+| **Admin Panel / Back-Office**  | **Gunakan Template Online Modern** (misal: [Tabler](https://tabler.io), [TailAdmin](https://tailadmin.com)) | Menghemat banyak waktu saat membuat tabel CRUD produk, kategori, rekap kasir per tanggal, dan grafik laporan penjualan.                                                                                                                               |
+
+---
+
+## Panduan Menjalankan dengan Docker
+
+### 1. Menjalankan Container
+
+Stack Docker terdiri dari **PHP 8.3-FPM (`app`)**, **Nginx (`web` port 8000)**, **MariaDB 10.11 (`db` port 3307)**, dan **Redis (`redis` port 6380)**:
 
 ```bash
-composer require laravel/boost --dev
+# Menjalankan seluruh container di background
+docker compose up -d
 
-php artisan boost:install
+# Cek status container
+docker compose ps
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+### 2. Migrasi & Seeder Demo Toko
 
-## Contributing
+Untuk mengisi database dengan data demo toko (Kategori, Produk ber-barcode, Varian, Outlet, Kasir, dan Shift aktif):
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+```bash
+docker compose exec app php artisan migrate:fresh --seed
+```
 
-## Code of Conduct
+### 3. Akses Aplikasi
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+- **Layar Kasir Interaktif (Web POS)**: [http://localhost:8000](http://localhost:8000)
+- **API Katalog Produk**: [http://localhost:8000/api/v1/products](http://localhost:8000/api/v1/products)
+- **API Kategori**: [http://localhost:8000/api/v1/categories](http://localhost:8000/api/v1/categories)
+- **API Riwayat Orders**: [http://localhost:8000/api/v1/orders](http://localhost:8000/api/v1/orders)
 
-## Security Vulnerabilities
+---
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+## 💳 Konfigurasi Midtrans Sandbox
 
-## License
+Pengaturan Midtrans terdapat di `.env`:
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+```env
+# Aktifkan (true) atau nonaktifkan/halt (false) fitur Midtrans
+MIDTRANS_ENABLED=true
+
+# Kunci API Sandbox dari dashboard Midtrans Anda
+MIDTRANS_SERVER_KEY=SB-Mid-server-YOUR_KEY
+MIDTRANS_CLIENT_KEY=SB-Mid-client-YOUR_KEY
+
+# Set true jika siap live production
+MIDTRANS_IS_PRODUCTION=false
+MIDTRANS_IS_SANITIZED=true
+MIDTRANS_IS_3DS=true
+```
+
+> **Catatan Feature Halt**: Jika `MIDTRANS_ENABLED=false` atau server key dibiarkan default (`DEMO_TEST_KEY`), sistem tidak akan error. Transaksi akan tetap sukses tersimpan dengan status `pending` dan token mock simulasi.
+
+---
+
+## 🖨️ Endpoint Cetak PDF
+
+- **Struk Kasir Thermal (58mm)**:
+    ```http
+    GET /api/v1/orders/{order_id}/receipt-pdf?width=58
+    ```
+- **Struk Kasir Thermal (80mm)**:
+    ```http
+    GET /api/v1/orders/{order_id}/receipt-pdf?width=80
+    ```
+- **Faktur Penjualan Resmi (A4)**:
+    ```http
+    GET /api/v1/orders/{order_id}/invoice-pdf
+    ```
