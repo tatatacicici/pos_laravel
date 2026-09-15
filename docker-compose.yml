@@ -1,0 +1,74 @@
+services:
+  app:
+    build:
+      context: ./docker/php
+      dockerfile: Dockerfile
+      args:
+        UID: 1000
+        GID: 1000
+    container_name: pos_laravel_app
+    restart: unless-stopped
+    working_dir: /var/www
+    volumes:
+      - ./:/var/www
+      - ./docker/php/local.ini:/usr/local/etc/php/conf.d/local.ini:ro
+    networks:
+      - pos_network
+    depends_on:
+      - db
+
+  web:
+    image: nginx:alpine
+    container_name: pos_laravel_web
+    restart: unless-stopped
+    ports:
+      - "8000:80"
+    volumes:
+      - ./:/var/www
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - pos_network
+    depends_on:
+      - app
+
+  db:
+    image: mariadb:10.11
+    container_name: pos_laravel_db
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: pos_db
+      MYSQL_USER: pos_user
+      MYSQL_PASSWORD: pos_password
+      MYSQL_ROOT_PASSWORD: root_password
+    ports:
+      - "3307:3306"
+    volumes:
+      - pos_db_data:/var/lib/mysql
+    networks:
+      - pos_network
+    healthcheck:
+      test: ["CMD", "mariadb-admin", "ping", "-h", "localhost", "-u", "root", "-proot_password"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:alpine
+    container_name: pos_laravel_redis
+    restart: unless-stopped
+    ports:
+      - "6380:6379"
+    volumes:
+      - pos_redis_data:/data
+    networks:
+      - pos_network
+
+networks:
+  pos_network:
+    driver: bridge
+
+volumes:
+  pos_db_data:
+    driver: local
+  pos_redis_data:
+    driver: local
